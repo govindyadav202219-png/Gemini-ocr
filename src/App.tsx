@@ -27,7 +27,9 @@ import {
   MessageSquare,
   Send,
   FolderOpen,
-  Files
+  Files,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -651,6 +653,27 @@ export default function App() {
     ));
   };
 
+  const addRow = () => {
+    const newRow: InvoiceItem = {
+      srNo: (data.length + 1).toString(),
+      invoiceNumber: '',
+      invoiceDate: '',
+      materialModel: '',
+      descriptionProduct: '',
+      hsCode: '',
+      qty: 0,
+      valueAmount: 0,
+      originCOO: ''
+    };
+    const newData = [...data, newRow];
+    setData(newData);
+  };
+
+  const deleteRow = (index: number) => {
+    const newData = data.filter((_, i) => i !== index);
+    setData(newData);
+  };
+
   const exportToExcel = () => {
     if (data.length === 0) return;
     
@@ -761,8 +784,8 @@ export default function App() {
               <div className="p-6">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
-                    <div className="bg-indigo-100 p-2 rounded-xl">
-                      <MessageSquare className="w-5 h-5 text-indigo-600" />
+                    <div className="bg-blue-100 p-2 rounded-xl">
+                      <MessageSquare className="w-5 h-5 text-blue-600" />
                     </div>
                     <h3 className="text-xl font-bold text-gray-900">Send Feedback</h3>
                   </div>
@@ -795,13 +818,13 @@ export default function App() {
                         value={feedbackText}
                         onChange={(e) => setFeedbackText(e.target.value)}
                         placeholder="Tell us what you think or report an issue..."
-                        className="w-full h-40 bg-gray-50 border border-gray-200 rounded-2xl p-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all resize-none"
+                        className="w-full h-40 bg-gray-50 border border-gray-200 rounded-2xl p-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none"
                       />
                     </div>
                     <button
                       type="submit"
                       disabled={isSubmittingFeedback || !feedbackText.trim()}
-                      className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
+                      className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-100"
                     >
                       {isSubmittingFeedback ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
@@ -829,6 +852,21 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-6">
+            {isProcessing && (
+              <div className="hidden lg:flex flex-col items-end w-48 mr-4">
+                <div className="flex justify-between w-full mb-1">
+                  <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Processing</span>
+                  <span className="text-[10px] font-black text-blue-600">{Math.round(finalProgress)}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden shadow-inner">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${finalProgress}%` }}
+                    className="h-full bg-blue-600 rounded-full"
+                  />
+                </div>
+              </div>
+            )}
             <div className="hidden md:flex flex-col items-end text-right mr-2">
               <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">
                 {getGreeting()}, {user?.name}
@@ -876,7 +914,7 @@ export default function App() {
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="mb-8 bg-white p-6 rounded-2xl shadow-sm border border-indigo-100 overflow-hidden relative"
+              className="mb-8 bg-white p-6 rounded-2xl shadow-sm border border-blue-100 overflow-hidden relative"
             >
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -1054,16 +1092,27 @@ export default function App() {
                               onClick={() => setEditingFileIndex(editingFileIndex === idx ? null : idx)}
                               className={cn(
                                 "p-1 rounded-full transition-colors",
-                                f.customInstructions ? "text-indigo-600 bg-indigo-50" : "text-gray-400 hover:bg-gray-200"
+                                f.customInstructions ? "text-blue-600 bg-blue-50" : "text-gray-400 hover:bg-gray-200"
                               )}
                               title="Edit file instructions"
                             >
                               <Settings2 className="w-3 h-3" />
                             </button>
+                            {f.status === 'processing' && (
+                              <button 
+                                onClick={() => {
+                                  setFiles(prev => prev.map((file, i) => i === idx ? { ...file, status: 'error', error: 'Cancelled' } : file));
+                                }}
+                                className="p-1 hover:bg-red-100 rounded-full text-red-500 transition-colors"
+                                title="Cancel processing"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
                             {f.status === 'completed' && !isProcessing && (
                               <button 
                                 onClick={() => reprocessFile(idx)}
-                                className="p-1 hover:bg-indigo-100 rounded-full text-indigo-500 transition-colors"
+                                className="p-1 hover:bg-blue-100 rounded-full text-blue-500 transition-colors"
                                 title="Reprocess with new instructions"
                               >
                                 <RefreshCw className="w-3 h-3" />
@@ -1073,7 +1122,7 @@ export default function App() {
                               <button 
                                 onClick={() => retryFile(idx)}
                                 className="p-1 hover:bg-red-100 rounded-full text-red-500 transition-colors"
-                                title="Retry"
+                                title="Continue"
                               >
                                 <RefreshCw className="w-3 h-3" />
                               </button>
@@ -1098,7 +1147,7 @@ export default function App() {
                                 value={f.customInstructions || ''}
                                 onChange={(e) => updateFileInstructions(idx, e.target.value)}
                                 placeholder="Specific instructions for this file..."
-                                className="w-full h-20 bg-gray-50 border border-gray-200 rounded-lg p-2 text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all resize-none"
+                                className="w-full h-20 bg-gray-50 border border-gray-200 rounded-lg p-2 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all resize-none"
                               />
                             </motion.div>
                           )}
@@ -1275,6 +1324,13 @@ export default function App() {
                   {data.length > 0 && (
                     <div className="flex items-center gap-2">
                       <button
+                        onClick={addRow}
+                        className="bg-blue-50 hover:bg-blue-100 text-blue-600 p-2 rounded-lg transition-all border border-blue-200 shadow-sm"
+                        title="Add New Row"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                      <button
                         onClick={exportToCSV}
                         className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-blue-100 three-d-button"
                         title="Export all data columns to CSV"
@@ -1305,6 +1361,7 @@ export default function App() {
                             {col.label}
                           </th>
                         ))}
+                        <th className="w-12 border-b border-gray-200"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -1323,6 +1380,15 @@ export default function App() {
                                 <div className="absolute inset-0 pointer-events-none border-blue-500/0 group-hover:border-blue-500/10 border transition-all" />
                               </td>
                             ))}
+                            <td className="p-0 text-center">
+                              <button 
+                                onClick={() => deleteRow(rowIndex)}
+                                className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                                title="Delete Row"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
