@@ -1,5 +1,5 @@
 {
-  "name": "Gemini Invoice Extractor Pro",
-  "description": "High-speed, AI-powered invoice data extraction tool with parallel processing, image optimization, and multi-format export.",
+  "name": "SmartInvoice Extractor",
+  "description": "High-speed, AI-powered invoice data extraction tool with parallel processing, image optimization, multi-format export (ZIP bundle), and real-time search with highlighting.",
   "requestFramePermissions": []
 }

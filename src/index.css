@@ -8,21 +8,46 @@
 
 @layer base {
   body {
-    @apply bg-[#F8F9FA] text-[#1A1A1A] overflow-x-hidden;
+    @apply bg-[#F8F9FA] text-[#1A1A1A] overflow-x-hidden transition-colors duration-300;
+  }
+  .dark body {
+    @apply bg-[#0F172A] text-[#F8FAFC];
   }
 }
 
 @layer components {
   .glass-card {
-    @apply bg-white/80 backdrop-blur-md border border-white/20 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)];
+    @apply bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-white/20 dark:border-slate-800 shadow-[0_20px_50px_rgba(8,_112,_184,_0.05)] dark:shadow-none;
   }
   
-  .three-d-shadow {
-    @apply shadow-[5px_5px_0px_0px_rgba(0,0,0,0.1)];
+  .three-d-card {
+    @apply transition-all duration-500 hover:scale-[1.02] hover:-translate-y-2 hover:shadow-[0_30px_60px_-12px_rgba(50,50,93,0.25),0_18px_36px_-18px_rgba(0,0,0,0.3)];
+    transform-style: preserve-3d;
+    perspective: 1000px;
+  }
+
+  .three-d-inner {
+    transform: translateZ(20px);
   }
   
   .three-d-button {
-    @apply transition-all active:translate-y-1 active:shadow-none;
+    @apply relative overflow-hidden transition-all duration-300 active:scale-95 shadow-[0_4px_0_0_#1e40af] active:shadow-none active:translate-y-[4px];
+  }
+
+  .bg-mesh {
+    background-color: #f8fafc;
+    background-image: 
+      radial-gradient(at 0% 0%, hsla(210,100%,96%,1) 0, transparent 50%), 
+      radial-gradient(at 50% 0%, hsla(225,100%,96%,1) 0, transparent 50%), 
+      radial-gradient(at 100% 0%, hsla(339,49%,96%,1) 0, transparent 50%);
+  }
+
+  .dark .bg-mesh {
+    background-color: #0f172a;
+    background-image: 
+      radial-gradient(at 0% 0%, hsla(220,100%,10%,1) 0, transparent 50%), 
+      radial-gradient(at 50% 0%, hsla(225,100%,15%,1) 0, transparent 50%), 
+      radial-gradient(at 100% 0%, hsla(220,100%,10%,1) 0, transparent 50%);
   }
 }
 
@@ -57,5 +82,5 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 rounded-full hover:bg-gray-400 transition-colors;
+  @apply bg-gray-300 dark:bg-gray-700 rounded-full hover:bg-gray-400 dark:hover:bg-gray-600 transition-colors;
 }
