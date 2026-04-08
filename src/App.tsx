@@ -73,7 +73,10 @@ import {
   Filter,
   Mail,
   Camera,
-  MessageCircle
+  MessageCircle,
+  Edit3,
+  Check,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import html2canvas from 'html2canvas';
@@ -159,6 +162,8 @@ interface FileStatus {
   file: File;
   status: 'pending' | 'processing' | 'completed' | 'error';
   error?: string;
+  errorReason?: string;
+  errorAction?: string;
   customInstructions?: string;
   pageCount?: number;
   progress?: number;
@@ -218,6 +223,15 @@ const EXTRACTION_SCHEMA = {
     pageCount: { type: Type.INTEGER, description: "Total number of pages processed in this document" },
   },
   required: ["items"],
+};
+
+const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
+  srNo: 60,
+  qty: 80,
+  invoiceDate: 120,
+  valueAmount: 100,
+  hsCode: 120,
+  originCOO: 100,
 };
 
 // --- Helper Functions ---
@@ -541,7 +555,13 @@ const Highlight = ({ text, highlight }: { text: string; highlight: string }) => 
   }
 };
 
-const getDetailedErrorMessage = (err: any): string => {
+interface ErrorDetail {
+  message: string;
+  reason: string;
+  action: string;
+}
+
+const getDetailedErrorMessage = (err: any): ErrorDetail => {
   let errorStr = err.message || String(err);
   let status = err.status || (err.response && err.response.status);
 
@@ -567,42 +587,125 @@ const getDetailedErrorMessage = (err: any): string => {
   const errorStrLower = errorStr.toLowerCase();
 
   if (errorStr === "EMPTY_RESPONSE") {
-    return "AI returned an empty response. This usually happens with very blurry documents or scans that are too dark to read.";
+    return {
+      message: "AI returned an empty response.",
+      reason: "The document might be too blurry, dark, or contains no readable text.",
+      action: "Try a clearer scan, increase the brightness, or enable 'Advanced Preprocessing' in Settings."
+    };
   }
   if (errorStr === "INVALID_API_KEY" || status === 401) {
-    return "Invalid or Missing API Key. Please click the Settings (gear icon) to provide a valid Gemini API key or select one via the AI Studio dialog.";
+    return {
+      message: "Invalid or Missing API Key.",
+      reason: "The Gemini API key is either missing or has been revoked.",
+      action: "Click the Settings (gear icon) to provide a valid Gemini API key or select one via the AI Studio dialog."
+    };
   }
   if (errorStrLower.includes("quota") || errorStrLower.includes("429") || status === 429) {
-    return "Rate limit reached (15 requests per minute for Free tier). Please wait about 60 seconds and try again.";
+    return {
+      message: "Rate limit reached.",
+      reason: "You have exceeded the 15 requests per minute limit for the Free tier.",
+      action: "Please wait about 60 seconds and try again. Consider upgrading if you need higher throughput."
+    };
   }
   if (errorStrLower.includes("safety") || (status === 400 && errorStrLower.includes("safety"))) {
-    return "Blocked by Safety Filters. The AI detected potentially sensitive content. Try a different document or adjust the scan.";
+    return {
+      message: "Blocked by Safety Filters.",
+      reason: "The AI detected potentially sensitive or restricted content in the document.",
+      action: "Ensure the document doesn't contain prohibited content. Try processing a different file."
+    };
   }
   if (errorStrLower.includes("fetch") || errorStrLower.includes("networkerror") || errorStrLower.includes("failed to fetch") || errorStrLower.includes("network")) {
-    console.error("Network Error Details:", err);
-    return "Network Error. Please check your internet connection. If you are using a VPN, try disabling it.";
+    return {
+      message: "Network Connection Error.",
+      reason: "The application could not reach the Gemini API servers.",
+      action: "Check your internet connection. If you are using a VPN or proxy, try disabling it."
+    };
   }
   if (errorStrLower.includes("model not found") || status === 404) {
-    return "AI Model Not Found. The selected Gemini model might be unavailable in your region or has been deprecated.";
+    return {
+      message: "AI Model Not Found.",
+      reason: "The selected Gemini model is unavailable in your region or has been deprecated.",
+      action: "Go to Settings and try selecting a different Gemini model (e.g., Gemini 1.5 Flash)."
+    };
   }
   if (errorStrLower.includes("invalid argument") || status === 400) {
-    return "Invalid Request. The file might be too large, or the format is not supported by the AI model.";
+    return {
+      message: "Invalid Request.",
+      reason: "The file might be too large, or the format is not supported by the AI model.",
+      action: "Try compressing the file or converting it to a standard format like PDF or JPG."
+    };
   }
   if (errorStrLower.includes("deadline exceeded") || status === 504 || errorStrLower.includes("timeout")) {
-    return "Request Timed Out. The document is too complex for a single pass. Try processing fewer pages at a time.";
+    return {
+      message: "Request Timed Out.",
+      reason: "The document is too complex or large for a single processing pass.",
+      action: "Try processing fewer pages at a time or reduce the file resolution."
+    };
   }
   if (status === 403) {
-    return "Access Forbidden. Your API key does not have permission to use this specific model or feature.";
+    return {
+      message: "Access Forbidden.",
+      reason: "Your API key does not have permission to use this specific model or feature.",
+      action: "Verify your API key permissions in the Google AI Studio console."
+    };
   }
   if (status >= 500 || errorStrLower.includes("internal server error")) {
-    return "Gemini Service Error (500). This often happens with large or complex documents. Try processing a smaller file, or try again in a few moments.";
+    return {
+      message: "Gemini Service Error (500).",
+      reason: "An internal error occurred on Google's servers while processing the document.",
+      action: "This is usually temporary. Try again in a few moments or with a smaller file."
+    };
   }
   if (errorStrLower.includes("unexpected token") || errorStrLower.includes("json") || errorStrLower.includes("parse")) {
-    return "Data Extraction Error. The AI's output was not in the expected format. Clicking 'Retry' often fixes this.";
+    return {
+      message: "Data Extraction Error.",
+      reason: "The AI's output was not in the expected format and could not be parsed.",
+      action: "Click 'Retry' to attempt the extraction again. Sometimes a second pass succeeds."
+    };
   }
 
   // Fallback for unknown errors
-  return `Extraction Error: ${errorStr.substring(0, 150)}${errorStr.length > 150 ? '...' : ''}`;
+  return {
+    message: "Unexpected Extraction Error.",
+    reason: errorStr.substring(0, 150) + (errorStr.length > 150 ? '...' : ''),
+    action: "Check the console for more details or try a different document."
+  };
+};
+
+const validateCell = (item: InvoiceItem, key: keyof InvoiceItem): { isValid: boolean; message?: string } => {
+  const value = item[key];
+  
+  switch (key) {
+    case 'invoiceDate':
+      if (!value) return { isValid: false, message: "Date is missing" };
+      // Simple date validation
+      const date = new Date(String(value));
+      if (isNaN(date.getTime())) return { isValid: false, message: "Invalid date format" };
+      return { isValid: true };
+    
+    case 'qty':
+      const qty = Number(value);
+      if (isNaN(qty) || qty <= 0) return { isValid: false, message: "Quantity must be greater than 0" };
+      return { isValid: true };
+    
+    case 'valueAmount':
+      const amount = Number(value);
+      if (isNaN(amount) || amount < 0) return { isValid: false, message: "Amount cannot be negative" };
+      if (amount === 0) return { isValid: false, message: "Amount is 0 (Check if correct)" };
+      return { isValid: true };
+    
+    case 'descriptionProduct':
+      if (!value || String(value).trim().length < 3) return { isValid: false, message: "Description is too short or missing" };
+      return { isValid: true };
+    
+    case 'hsCode':
+      // HS code is often required for international shipping
+      if (!value) return { isValid: false, message: "HS Code is missing" };
+      return { isValid: true };
+      
+    default:
+      return { isValid: true };
+  }
 };
 
 // --- Components ---
@@ -618,10 +721,12 @@ export default function App() {
   const [history, setHistory] = useState<{ stack: InvoiceItem[][], index: number }>({ stack: [], index: -1 });
   const [isInternalUpdate, setIsInternalUpdate] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorDetail | null>(null);
   const [customInstructions, setCustomInstructions] = useState('');
   const [editingFileIndex, setEditingFileIndex] = useState<number | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [reviewingRowIndex, setReviewingRowIndex] = useState<number | null>(null);
+  const [isReviewMode, setIsReviewMode] = useState(false);
   const [whatsappNumber, setWhatsappNumber] = useState('911234567890');
 
   const captureTable = async () => {
@@ -931,6 +1036,65 @@ export default function App() {
     { key: 'originCOO', label: 'COO/Origin', enabled: true },
   ]);
   const [draggedColumnIndex, setDraggedColumnIndex] = useState<number | null>(null);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const isResizing = useRef<string | null>(null);
+  const startX = useRef<number>(0);
+  const startWidth = useRef<number>(0);
+
+  const getColWidth = (key: string) => columnWidths[key] || DEFAULT_COLUMN_WIDTHS[key] || 150;
+
+  useEffect(() => {
+    const savedWidths = localStorage.getItem('invoice_extractor_column_widths');
+    if (savedWidths) {
+      try {
+        setColumnWidths(JSON.parse(savedWidths));
+      } catch (e) {
+        console.error("Failed to load column widths", e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (Object.keys(columnWidths).length > 0) {
+      localStorage.setItem('invoice_extractor_column_widths', JSON.stringify(columnWidths));
+    }
+  }, [columnWidths]);
+
+  const handleResizeStart = (e: React.MouseEvent, colKey: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing.current = colKey;
+    startX.current = e.pageX;
+    
+    // Find the th element
+    let target = e.target as HTMLElement;
+    while (target && target.tagName !== 'TH') {
+      target = target.parentElement as HTMLElement;
+    }
+    
+    if (target) {
+      startWidth.current = target.offsetWidth;
+    }
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!isResizing.current) return;
+      const diff = moveEvent.pageX - startX.current;
+      const newWidth = Math.max(80, startWidth.current + diff);
+      setColumnWidths(prev => ({
+        ...prev,
+        [isResizing.current!]: newWidth
+      }));
+    };
+
+    const handleMouseUp = () => {
+      isResizing.current = null;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
 
   useEffect(() => {
     const savedColumns = localStorage.getItem('invoice_extractor_columns');
@@ -1943,7 +2107,16 @@ export default function App() {
           } catch (err: any) {
             clearInterval(progressInterval);
             console.error(`[Extraction Error] ${file.file.name}:`, err);
-            setFiles(prev => prev.map((f, idx) => idx === i ? { ...f, status: 'error', error: getDetailedErrorMessage(err), progress: 0, statusText: 'Error' } : f));
+            const errDetail = getDetailedErrorMessage(err);
+            setFiles(prev => prev.map((f, idx) => idx === i ? { 
+              ...f, 
+              status: 'error', 
+              error: errDetail.message, 
+              errorReason: errDetail.reason,
+              errorAction: errDetail.action,
+              progress: 0, 
+              statusText: 'Error' 
+            } : f));
           }
         }
       };
@@ -1960,7 +2133,8 @@ export default function App() {
         stack: globalErr.stack,
         timestamp: new Date().toISOString()
       });
-      setError(getDetailedErrorMessage(globalErr));
+      const globalErrDetail = getDetailedErrorMessage(globalErr);
+      setError(globalErrDetail);
     } finally {
       setIsProcessing(false);
       if (allExtractedItems.length > 0 && autoExport) {
@@ -2076,7 +2250,8 @@ export default function App() {
       }
     } catch (err: any) {
       console.error("Refine Error:", err);
-      toast.error(`Refine failed: ${getDetailedErrorMessage(err)}`, { id: toastId });
+      const errDetail = getDetailedErrorMessage(err);
+      toast.error(`Refine failed: ${errDetail.message}`, { id: toastId });
     } finally {
       setIsRefining(false);
     }
@@ -3761,7 +3936,22 @@ export default function App() {
                                           className="overflow-hidden"
                                         >
                                           <div className="bg-red-50/50 border border-red-100 rounded-lg p-3 text-[11px] text-red-700 font-medium leading-relaxed">
-                                            <p className="mb-2">{f.error}</p>
+                                            <p className="font-bold mb-2">{f.error}</p>
+                                            
+                                            {f.errorReason && (
+                                              <div className="mb-2">
+                                                <span className="text-[9px] uppercase font-black opacity-50 block mb-0.5">Reason</span>
+                                                <p className="text-red-800">{f.errorReason}</p>
+                                              </div>
+                                            )}
+
+                                            {f.errorAction && (
+                                              <div className="mb-2">
+                                                <span className="text-[9px] uppercase font-black opacity-50 block mb-0.5">Suggested Action</span>
+                                                <p className="text-blue-700 font-bold">{f.errorAction}</p>
+                                              </div>
+                                            )}
+
                                             <div className="flex items-center gap-3 mt-2 pt-2 border-t border-red-100/50">
                                               <a 
                                                 href="https://ai.google.dev/gemini-api/docs/troubleshooting" 
@@ -3937,9 +4127,15 @@ export default function App() {
                 )}
 
               {error && (
-                <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-start gap-2 text-red-700 text-sm">
-                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  <span>{error}</span>
+                <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl flex flex-col gap-2 text-red-700 text-sm shadow-sm">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span className="font-bold">{error.message}</span>
+                  </div>
+                  <div className="pl-6 space-y-1">
+                    <p className="text-xs opacity-80">{error.reason}</p>
+                    <p className="text-xs font-bold text-blue-700">{error.action}</p>
+                  </div>
                 </div>
               )}
             </section>
@@ -3996,7 +4192,21 @@ export default function App() {
             <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-sm border border-gray-100 overflow-hidden min-h-[500px] flex flex-col three-d-shadow">
               <div className="p-4 sm:p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between bg-white/50 sticky top-0 z-10 gap-4">
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900">Consolidated Data</h2>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setIsReviewMode(!isReviewMode)}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                        isReviewMode 
+                          ? "bg-amber-50 text-amber-600 border-amber-200 shadow-sm" 
+                          : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+                      )}
+                    >
+                      <AlertTriangle className={cn("w-3.5 h-3.5", isReviewMode ? "animate-pulse" : "")} />
+                      {isReviewMode ? "Review Mode ON" : "Review Mode"}
+                    </button>
+                    <h2 className="text-lg font-bold text-gray-900">Consolidated Data</h2>
+                  </div>
                   <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
                     {data.length} items extracted 
                     {totalPagesProcessed > 0 && ` • ${totalPagesProcessed} Pages Read`}
@@ -4267,7 +4477,7 @@ export default function App() {
 
               <div className="flex-1 overflow-auto" id="invoice-data-table">
                 {data.length > 0 ? (
-                  <table className="min-w-[1000px] w-full text-left border-collapse table-auto">
+                  <table className="min-w-[1000px] w-full text-left border-collapse table-fixed">
                     <thead className="bg-gray-50/80 sticky top-0 z-10">
                       <tr>
                         {columns.filter(c => c.enabled).map((col, index) => (
@@ -4277,8 +4487,13 @@ export default function App() {
                             onDragStart={() => handleColumnDragStart(columns.indexOf(col))}
                             onDragOver={(e) => handleColumnDragOver(e, index)}
                             onDrop={() => handleColumnDrop(columns.indexOf(col))}
+                            style={{ 
+                              width: `${getColWidth(col.key)}px`,
+                              minWidth: `${getColWidth(col.key)}px`,
+                              maxWidth: `${getColWidth(col.key)}px`
+                            }}
                             className={cn(
-                              "px-4 py-3 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-200 truncate cursor-move hover:bg-gray-100 transition-colors",
+                              "px-4 py-3 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-200 truncate cursor-move hover:bg-gray-100 transition-colors relative group/th",
                               draggedColumnIndex === columns.indexOf(col) ? "opacity-30" : ""
                             )}
                           >
@@ -4286,6 +4501,11 @@ export default function App() {
                               <GripVertical className="w-3 h-3 opacity-30" />
                               {col.label}
                             </div>
+                            {/* Resizer Handle */}
+                            <div 
+                              onMouseDown={(e) => handleResizeStart(e, col.key)}
+                              className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-blue-400/50 active:bg-blue-500 transition-colors z-20"
+                            />
                           </th>
                         ))}
                         <th className="w-12 border-b border-gray-200"></th>
@@ -4299,14 +4519,23 @@ export default function App() {
                             {columns.filter(c => c.enabled).map(col => {
                               const cellValue = String(item[col.key] ?? "");
                               const isMatch = searchTerm && cellValue.toLowerCase().includes(searchTerm.toLowerCase());
+                              const validation = validateCell(item, col.key);
+                              const hasError = isReviewMode && !validation.isValid;
                               
                               return (
                                 <td 
                                   key={col.key} 
                                   className={cn(
                                     "p-0 border-r border-gray-100 last:border-r-0 relative transition-colors duration-200",
-                                    isMatch ? "bg-yellow-50/60" : "bg-transparent"
+                                    isMatch ? "bg-yellow-50/60" : "bg-transparent",
+                                    hasError ? "bg-red-50/50" : ""
                                   )}
+                                  style={{ 
+                                    width: `${getColWidth(col.key)}px`, 
+                                    minWidth: `${getColWidth(col.key)}px`,
+                                    maxWidth: `${getColWidth(col.key)}px` 
+                                  }}
+                                  title={hasError ? validation.message : undefined}
                                 >
                                   <div className="relative w-full h-full">
                                     <input 
@@ -4317,7 +4546,8 @@ export default function App() {
                                       onBlur={() => setFocusedCell(null)}
                                       className={cn(
                                         "w-full h-full bg-transparent border-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white px-4 py-4 text-sm text-gray-700 font-medium transition-all outline-none",
-                                        searchTerm && (focusedCell?.rowIndex !== rowIndex || focusedCell?.colKey !== col.key) ? "text-transparent" : ""
+                                        searchTerm && (focusedCell?.rowIndex !== rowIndex || focusedCell?.colKey !== col.key) ? "text-transparent" : "",
+                                        hasError ? "text-red-600 font-bold" : ""
                                       )}
                                     />
                                     {searchTerm && (focusedCell?.rowIndex !== rowIndex || focusedCell?.colKey !== col.key) && (
@@ -4325,22 +4555,37 @@ export default function App() {
                                         <Highlight text={cellValue} highlight={searchTerm} />
                                       </div>
                                     )}
+                                    {hasError && (
+                                      <div className="absolute top-1 right-1">
+                                        <AlertTriangle className="w-3 h-3 text-red-500" />
+                                      </div>
+                                    )}
                                   </div>
                                   <div className={cn(
                                     "absolute inset-0 pointer-events-none border transition-all",
-                                    isMatch ? "border-yellow-200/50" : "border-blue-500/0 group-hover:border-blue-500/10"
+                                    isMatch ? "border-yellow-200/50" : "",
+                                    hasError ? "border-red-200" : "border-blue-500/0 group-hover:border-blue-500/10"
                                   )} />
                                 </td>
                               );
                             })}
                             <td className="p-0 text-center">
-                              <button 
-                                onClick={() => deleteRow(rowIndex)}
-                                className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                                title="Delete Row"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              <div className="flex items-center justify-center gap-1">
+                                <button 
+                                  onClick={() => setReviewingRowIndex(rowIndex)}
+                                  className="p-2 text-gray-400 hover:text-blue-500 transition-colors opacity-0 group-hover:opacity-100"
+                                  title="Review Details"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => deleteRow(rowIndex)}
+                                  className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                                  title="Delete Row"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -4387,6 +4632,108 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      {/* Review Panel Overlay */}
+      <AnimatePresence>
+        {reviewingRowIndex !== null && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setReviewingRowIndex(null)}
+              className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-100 text-blue-600 rounded-xl">
+                    <Edit3 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">Review & Correct Data</h3>
+                    <p className="text-xs text-gray-500 font-medium">Row {reviewingRowIndex + 1} of {data.length}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setReviewingRowIndex(null)}
+                  className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-auto p-6 space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  {columns.map(col => {
+                    const validation = validateCell(data[reviewingRowIndex], col.key);
+                    const hasError = !validation.isValid;
+                    
+                    return (
+                      <div key={col.key} className="space-y-1.5">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                          {col.label}
+                          {hasError && <AlertTriangle className="w-3 h-3 text-amber-500" />}
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={typeof data[reviewingRowIndex][col.key] === 'number' ? 'number' : 'text'}
+                            value={data[reviewingRowIndex][col.key] ?? ""}
+                            onChange={(e) => handleCellEdit(reviewingRowIndex, col.key, e.target.value)}
+                            className={cn(
+                              "w-full px-4 py-3 rounded-xl border text-sm font-medium transition-all outline-none",
+                              hasError 
+                                ? "border-red-200 bg-red-50 text-red-700 focus:ring-2 focus:ring-red-500/20" 
+                                : "border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                            )}
+                          />
+                          {hasError && (
+                            <p className="mt-1 text-[10px] text-red-500 font-bold flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              {validation.message}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setReviewingRowIndex(prev => prev !== null && prev > 0 ? prev - 1 : prev)}
+                    disabled={reviewingRowIndex === 0}
+                    className="p-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-all"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => setReviewingRowIndex(prev => prev !== null && prev < data.length - 1 ? prev + 1 : prev)}
+                    disabled={reviewingRowIndex === data.length - 1}
+                    className="p-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-all"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </div>
+                <button
+                  onClick={() => setReviewingRowIndex(null)}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-500/25 transition-all flex items-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  Done Reviewing
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 border-t border-gray-200 mt-8">
         <div className="flex flex-col items-center justify-center text-gray-400 text-xs gap-1">
